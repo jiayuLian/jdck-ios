@@ -12,6 +12,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          rm -rf JDCookieExtractor.xcodeproj
+          xcodegen generate
+
       - name: Build unsigned .app
         run: |
           xcodebuild -project JDCookieExtractor.xcodeproj \
