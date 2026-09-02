@@ -72,6 +72,9 @@ struct ContentView: View {
                 webController.onError = { msg in
                     extractStatus = "❌ \(msg)"
                 }
+                webController.onQQLoginAttempted = {
+                    extractStatus = "❌ 当前应用不支持 QQ 快速登录，请使用短信验证码或账号密码登录"
+                }
             }
         }
     }
