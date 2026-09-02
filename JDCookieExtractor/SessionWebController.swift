@@ -66,7 +66,9 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         for c in saved {
             var props: [HTTPCookiePropertyKey: Any] = [
                 .name: c.name, .value: c.value, .domain: c.domain, .path: c.path,
-                .secure: c.secure ? "TRUE" : "FALSE", .version: 0
+                .version: 0,
+                .secure: c.secure,
+                .init(rawValue: "HttpOnly"): c.httpOnly ? "TRUE" : "FALSE"
             ]
             if let e = c.expires { props[.expires] = Date(timeIntervalSince1970: e) }
             if let cookie = HTTPCookie(properties: props) {
