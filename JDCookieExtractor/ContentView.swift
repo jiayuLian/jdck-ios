@@ -59,7 +59,7 @@ struct ContentView: View {
                 // 下半部分：Cookie 与操作
                 cookieSection
             }
-            .navigationTitle("京东 CK 提取")
+            .navigationTitle("JDCookie")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { webToolbarContent }
             .onAppear {
