@@ -6,6 +6,7 @@ final class WebViewController: ObservableObject {
     weak var webView: WKWebView?
     var onCookieExtracted: ((String) -> Void)?
     var onError: ((String) -> Void)?
+    var onQQLoginAttempted: (() -> Void)?
 
     /// 从默认 Cookie 存储中提取京东 pt_key/pt_pin
     func extract(completion: ((String) -> Void)? = nil) {
@@ -74,11 +75,43 @@ struct LoginWebView: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+            let scheme = url.scheme?.lowercased() ?? ""
+            let host = url.host?.lowercased() ?? ""
+
+            // 京东 H5 里的 QQ 快速登录会尝试调起 QQ App，WKWebView 做不到；
+            // 拦截相关 scheme，让上层提示用户改用短信/密码登录。
+            let qqSchemes = ["wtloginmqq", "mqq", "mqqopensdkapi", "mqqapi", "mqqwpa", "mqqbrowser"]
+            let qqHosts = ["ptlogin2.qq.com", "openmobile.qq.com", "xui.ptlogin2.qq.com"]
+            let isQQ = qqSchemes.contains { scheme.hasPrefix($0) }
+                      || qqHosts.contains { host.hasSuffix($0) }
+            if isQQ {
+                DispatchQueue.main.async { self.parent.controller.onQQLoginAttempted?() }
+                decisionHandler(.cancel)
+                return
+            }
+
+            decisionHandler(.allow)
+        }
+
+        private func isCancelledError(_ error: Error) -> Bool {
+            let ns = error as NSError
+            return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
+        }
+
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard !isCancelledError(error) else { return }
             parent.controller.onError?("页面加载失败：\(error.localizedDescription)")
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            guard !isCancelledError(error) else { return }
             parent.controller.onError?("页面加载失败：\(error.localizedDescription)")
         }
     }
