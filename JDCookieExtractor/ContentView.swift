@@ -192,8 +192,9 @@ struct SessionDetail: View {
     private func bindCallbacks() {
         guard let s = session else { return }
         let c = pool.controller(for: s)
-        c.onCookieExtracted = { ck in
+        c.onCookieExtracted = { [weak pool] ck in
             guard !ck.isEmpty else { return }
+            guard let pool else { return }
             guard let base = pool.sessions.first(where: { $0.id == sessionId }) else { return }
             var m = base
             m.cookie = ck
