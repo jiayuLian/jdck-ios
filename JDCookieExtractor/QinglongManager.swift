@@ -105,15 +105,17 @@ final class QinglongManager {
             try checkOK(udata, response: uresponse, fallback: "更新环境变量失败")
             envId = env.id
         } else {
-            // 无同账号 -> 新建 JD_COOKIE
+            // 无同账号 -> 新建 JD_COOKIE：此面板 POST /open/envs 接受数组 [{name,value,remarks}]，
+            // 返回 {"code":200,"data":[{id}]}（data 为数组）。
             struct EnvCreate: Encodable { let name: String; let value: String; let remarks: String? }
-            let body = try encoder.encode(EnvCreate(name: "JD_COOKIE", value: cookie, remarks: nil))
+            struct IdR: Decodable { let data: [Inner]; struct Inner: Decodable { let id: Int } }
+            let body = try encoder.encode([EnvCreate(name: "JD_COOKIE", value: cookie, remarks: nil)])
             let cURL = try buildURL(baseURL: baseURL, path: "/open/envs")
             let cReq = authRequest(url: cURL, method: "POST", body: body, token: token)
-            let (cdata, _) = try await URLSession.shared.data(for: cReq)
-            struct IdR: Decodable { let code: Int; let message: String?; let data: Inner?; struct Inner: Decodable { let id: Int } }
+            let (cdata, cresponse) = try await URLSession.shared.data(for: cReq)
+            try checkOK(cdata, response: cresponse, fallback: "创建环境变量失败")
             let cr = try JSONDecoder().decode(IdR.self, from: cdata)
-            guard cr.code == 200, let newId = cr.data?.id else { throw QinglongError(msg: cr.message ?? "创建环境变量失败") }
+            guard let newId = cr.data.first?.id else { throw QinglongError(msg: "创建环境变量失败：响应缺少 id") }
             envId = newId
         }
 
