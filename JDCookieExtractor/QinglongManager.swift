@@ -56,32 +56,45 @@ final class QinglongManager {
         throw QinglongError(msg: "服务器返回异常，请检查面板地址")
     }
 
+    /// 按 pt_pin（账号唯一标识）匹配青龙里的 JD_COOKIE，与安卓原版 jdck-android 逻辑一致：
+    /// 解析新 cookie 的 pt_pin -> 遍历 JD_COOKIE -> 找到 value 中 pt_pin 相同的一条 -> 按它的 id 更新；
+    /// 找不到则新建 JD_COOKIE。更新时保留原 name/remarks，只改 value。
     func pushCookie(baseURL: String, clientId: String, clientSecret: String, cookie: String) async throws -> String {
         let token = try await getToken(baseURL: baseURL, clientId: clientId, clientSecret: clientSecret)
 
-        // 1) 查找已有的 JD_COOKIE
+        // 0) 从新 cookie 解析 pt_pin（账号唯一标识，作为匹配条件）
+        guard let newPin = QinglongManager.extractPtPin(cookie) else {
+            throw QinglongError(msg: "Cookie 缺少 pt_pin，无法定位账号，请重新登录获取")
+        }
+
+        // 1) 拉取已有的 JD_COOKIE 列表
         let listURL = try buildURL(baseURL: baseURL, path: "/open/envs",
                                    query: [URLQueryItem(name: "searchValue", value: "JD_COOKIE")])
         let listReq = authRequest(url: listURL, method: "GET", token: token)
         let (ldata, _) = try await URLSession.shared.data(for: listReq)
         struct ListR: Decodable { let code: Int; let data: [Env]?; struct Env: Decodable { let id: Int; let name: String; let value: String; let status: Int?; let remarks: String? } }
         let list = try JSONDecoder().decode(ListR.self, from: ldata)
-        let existing = list.data?.first(where: { $0.name == "JD_COOKIE" })
+
+        // 2) 按 pt_pin 匹配：找到 value 中 pt_pin 与新 cookie 相同的那条
+        let target = list.data?.first { env in
+            guard let pin = QinglongManager.extractPtPin(env.value) else { return false }
+            return pin == newPin
+        }
 
         let encoder = JSONEncoder()
         var envId: Int
 
-        if let env = existing {
-            // 2a) 已存在 -> 更新，保留原备注，只改值
+        if let env = target {
+            // 已存在同账号 -> 按 id 更新，保留原 name/remarks，只改 value
             struct EnvUpdate: Encodable { let id: Int; let name: String; let value: String; let remarks: String? }
-            let body = try encoder.encode(EnvUpdate(id: env.id, name: "JD_COOKIE", value: cookie, remarks: env.remarks))
+            let body = try encoder.encode(EnvUpdate(id: env.id, name: env.name, value: cookie, remarks: env.remarks))
             let updURL = try buildURL(baseURL: baseURL, path: "/open/envs")
             let updReq = authRequest(url: updURL, method: "PUT", body: body, token: token)
             let (udata, _) = try await URLSession.shared.data(for: updReq)
             try checkOK(udata, fallback: "更新环境变量失败")
             envId = env.id
         } else {
-            // 2b) 不存在 -> 新建
+            // 无同账号 -> 新建 JD_COOKIE
             struct EnvCreate: Encodable { let name: String; let value: String; let remarks: String? }
             let body = try encoder.encode(EnvCreate(name: "JD_COOKIE", value: cookie, remarks: nil))
             let cURL = try buildURL(baseURL: baseURL, path: "/open/envs")
@@ -101,6 +114,20 @@ final class QinglongManager {
         let (edata, _) = try await URLSession.shared.data(for: eReq)
         try checkOK(edata, fallback: "启用环境变量失败")
 
-        return existing == nil ? "已新建并启用 JD_COOKIE（env id \(envId)）" : "已更新并启用 JD_COOKIE（env id \(envId)）"
+        return target == nil
+            ? "已新建账号 \(newPin) 的 JD_COOKIE（env id \(envId)）并启用"
+            : "已更新账号 \(newPin) 的 JD_COOKIE（env id \(envId)）并启用"
+    }
+
+    /// 从 cookie 字符串解析 pt_pin（账号唯一标识）。形如 pt_pin=xxx;
+    private static func extractPtPin(_ cookie: String) -> String? {
+        for part in cookie.components(separatedBy: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("pt_pin=") {
+                let v = String(trimmed.dropFirst("pt_pin=".count)).trimmingCharacters(in: .whitespaces)
+                return v.isEmpty ? nil : v
+            }
+        }
+        return nil
     }
 }
