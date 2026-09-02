@@ -194,11 +194,18 @@ struct SessionDetail: View {
         let c = pool.controller(for: s)
         c.onCookieExtracted = { ck in
             guard !ck.isEmpty else { return }
-            if var m = pool.sessions.first(where: { $0.id == sessionId }) {
-                m.cookie = ck
-                m.ptPin = QinglongManager.extractPtPin(ck)
-                m.status = "✅ 已提取 Cookie"
-                pool.update(m)
+            guard let base = pool.sessions.first(where: { $0.id == sessionId }) else { return }
+            var m = base
+            m.cookie = ck
+            m.ptPin = QinglongManager.extractPtPin(ck)
+            m.status = "✅ 已提取 Cookie"
+            pool.update(m)
+            // 同时持久化本窗口登录态，下次启动自动恢复（避免重新登录）
+            pool.controller(for: m).fetchCookies { saved in
+                if var m2 = pool.sessions.first(where: { $0.id == sessionId }) {
+                    m2.cookies = saved
+                    pool.update(m2)
+                }
             }
         }
         c.onError = { msg in
