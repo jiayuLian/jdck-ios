@@ -15,7 +15,7 @@ jobs:
       - name: Build unsigned .app
         run: |
           xcodebuild -project JDCookieExtractor.xcodeproj \
-            -target JDCookieExtractor \
+            -scheme JDCookieExtractor \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
