@@ -39,7 +39,7 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP=$(find build -name "JDCookieExtractor.app" -type d | head -n 1)
+          APP=$(find build -name "*.app" -type d | head -n 1)
           echo "APP=$APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
