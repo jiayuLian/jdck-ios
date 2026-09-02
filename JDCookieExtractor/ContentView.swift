@@ -1,6 +1,13 @@
 import SwiftUI
 import UIKit
 
+/// 统一的弹窗模型：推送/测试 成功或失败都走它
+struct AlertInfo: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 struct ContentView: View {
     @AppStorage("ql_baseURL") private var baseURL: String = ""
     @AppStorage("ql_clientId") private var clientId: String = ""
@@ -11,6 +18,7 @@ struct ContentView: View {
     @State private var settingsStatus: String = ""
     @State private var isPushing = false
     @State private var showWebView = false
+    @State private var alertInfo: AlertInfo?
     @StateObject private var webController = WebViewController()
 
     private let loginURL = URL(string: "https://home.m.jd.com/myJd/home.action")!
@@ -21,6 +29,14 @@ struct ContentView: View {
                 .tabItem { Label("提取", systemImage: "key.fill") }
             settingsTab
                 .tabItem { Label("青龙", systemImage: "server.rack") }
+        }
+        // 全局弹窗：无论停留在哪个 Tab，推送/测试结果都会居中弹出
+        .alert(item: $alertInfo) { info in
+            Alert(
+                title: Text(info.title),
+                message: Text(info.message),
+                dismissButton: .default(Text("好"))
+            )
         }
     }
 
@@ -46,6 +62,17 @@ struct ContentView: View {
             .navigationTitle("京东 CK 提取")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { webToolbarContent }
+            .onAppear {
+                // 接上 WebView 的自动提取与错误回调（之前是空接，导致自动抓取无效）
+                webController.onCookieExtracted = { ck in
+                    guard !ck.isEmpty else { return }
+                    jdCookie = ck
+                    extractStatus = "✅ 已自动提取 Cookie（长度 \(ck.count)）"
+                }
+                webController.onError = { msg in
+                    extractStatus = "❌ \(msg)"
+                }
+            }
         }
     }
 
@@ -76,7 +103,7 @@ struct ContentView: View {
                 .foregroundColor(.red)
             Text("点击开始登录京东")
                 .font(.headline)
-            Text("登录成功后，点击右上角「提取CK」即可获取 pt_key/pt_pin")
+            Text("登录成功后，点击右上角「提取CK」即可获取 pt_key/pt_pin；也可等待自动提取")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -206,11 +233,13 @@ struct ContentView: View {
                 await MainActor.run {
                     extractStatus = "✅ \(msg)"
                     isPushing = false
+                    alertInfo = AlertInfo(title: "推送成功", message: msg)
                 }
             } catch {
                 await MainActor.run {
                     extractStatus = "❌ 失败：\(error.localizedDescription)"
                     isPushing = false
+                    alertInfo = AlertInfo(title: "推送失败", message: error.localizedDescription)
                 }
             }
         }
@@ -220,9 +249,15 @@ struct ContentView: View {
         do {
             let token = try await QinglongManager.shared.getToken(
                 baseURL: baseURL, clientId: clientId, clientSecret: clientSecret)
-            await MainActor.run { settingsStatus = "✅ 连接成功，token 长度 \(token.count)" }
+            await MainActor.run {
+                settingsStatus = "✅ 连接成功，token 长度 \(token.count)"
+                alertInfo = AlertInfo(title: "连接成功", message: "已成功获取 token（长度 \(token.count)），面板可正常通信。")
+            }
         } catch {
-            await MainActor.run { settingsStatus = "❌ 连接失败：\(error.localizedDescription)" }
+            await MainActor.run {
+                settingsStatus = "❌ 连接失败：\(error.localizedDescription)"
+                alertInfo = AlertInfo(title: "连接失败", message: error.localizedDescription)
+            }
         }
     }
 }
