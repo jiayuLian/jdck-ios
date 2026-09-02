@@ -51,14 +51,16 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var webToolbarContent: some ToolbarContent {
-        if showWebView {
-            ToolbarItem(placement: .navigationBarLeading) {
+        ToolbarItem(placement: .navigationBarLeading) {
+            if showWebView {
                 Button("关闭") {
                     showWebView = false
                     extractStatus = "已关闭登录页"
                 }
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
+        }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            if showWebView {
                 Button("提取CK") {
                     manualExtract()
                 }
