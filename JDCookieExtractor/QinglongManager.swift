@@ -22,6 +22,10 @@ final class QinglongManager {
     }
 
     func getToken(baseURL: String, clientId: String, clientSecret: String) async throws -> String {
+        let key = "\(baseURL)|\(clientId)"
+        if let c = tokenCache, c.key == key, c.expire > Date() {
+            return c.token
+        }
         let url = try buildURL(baseURL: baseURL, path: "/open/auth/token",
                                query: [URLQueryItem(name: "client_id", value: clientId),
                                        URLQueryItem(name: "client_secret", value: clientSecret)])
@@ -33,6 +37,7 @@ final class QinglongManager {
         guard r.code == 200, let token = r.data?.token else {
             throw QinglongError(msg: r.message ?? "获取 token 失败 (code \(r.code))")
         }
+        tokenCache = (token, Date().addingTimeInterval(tokenTTL), key)
         return token
     }
 
