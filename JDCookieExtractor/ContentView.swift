@@ -184,7 +184,7 @@ struct SessionDetail: View {
         .navigationTitle(session?.label ?? "窗口")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if let s = session { pool.controller(for: s).ensureLoaded(url: jdLoginURL) }
+            if let s = session { pool.controller(for: s).ensureLoaded(url: jdLoginURL, restore: s.cookies) }
             bindCallbacks()
         }
     }
