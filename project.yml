@@ -21,6 +21,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jiayu.jdcookieextractor
+        PRODUCT_NAME: JDCookie
         INFOPLIST_FILE: JDCookieExtractor/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
         CODE_SIGNING_ALLOWED: "NO"
