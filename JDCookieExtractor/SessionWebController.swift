@@ -63,6 +63,7 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     private func applyCookies(_ saved: [SavedCookie], completion: @escaping () -> Void) {
         guard !saved.isEmpty else { completion(); return }
         let group = DispatchGroup()
+        let store = webView.configuration.websiteDataStore.httpCookieStore
         for c in saved {
             var props: [HTTPCookiePropertyKey: Any] = [
                 .name: c.name, .value: c.value, .domain: c.domain, .path: c.path,
@@ -71,12 +72,21 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 .init(rawValue: "HttpOnly"): c.httpOnly ? "TRUE" : "FALSE"
             ]
             if let e = c.expires { props[.expires] = Date(timeIntervalSince1970: e) }
-            if let cookie = HTTPCookie(properties: props) {
-                group.enter()
-                webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) {
-                    group.leave()
-                }
+            // 优先用完整属性构造；若个别属性（如 expires/HttpOnly）导致构造失败则降级重试，
+            // 避免某条 cookie 注入失败而丢失登录态。
+            func makeCookie(_ p: [HTTPCookiePropertyKey: Any]) -> HTTPCookie? {
+                HTTPCookie(properties: p)
             }
+            var cookie = makeCookie(props)
+            if cookie == nil {
+                var p2 = props
+                p2.removeValue(forKey: .expires)
+                p2.removeValue(forKey: .init(rawValue: "HttpOnly"))
+                cookie = makeCookie(p2)
+            }
+            guard let ck = cookie else { continue }
+            group.enter()
+            store.setCookie(ck) { group.leave() }
         }
         group.notify(queue: .main) { completion() }
     }
