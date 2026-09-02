@@ -11,6 +11,11 @@ final class QinglongManager {
     static let shared = QinglongManager()
     private init() {}
 
+    /// token 缓存：同一面板地址 + ClientID 在 TTL 内复用，避免「一键推送全部账号」时
+    /// 每个账号都重新请求一次 token（青龙 token 默认长期有效，10 分钟缓存足够安全）。
+    private var tokenCache: (token: String, expire: Date, key: String)?
+    private let tokenTTL: TimeInterval = 600
+
     private func buildURL(baseURL: String, path: String, query: [URLQueryItem] = []) throws -> URL {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
