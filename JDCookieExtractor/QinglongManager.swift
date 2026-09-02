@@ -119,7 +119,7 @@ final class QinglongManager {
             envId = newId
         }
 
-        // 3) 启用：此面板（ql.cute6696.cn）的 /open/envs/enable 接受纯数字 id 数组 [id]，
+        // 3) 启用：青龙 OpenAPI的 /open/envs/enable 接受纯数字 id 数组 [id]，
         //    不接受 [{"id":, "status":}]（会返回 HTTP 400）。
         let ebody = try encoder.encode([envId])
         let eURL = try buildURL(baseURL: baseURL, path: "/open/envs/enable")
