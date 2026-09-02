@@ -201,10 +201,13 @@ struct SessionDetail: View {
             m.status = "✅ 已提取 Cookie"
             pool.update(m)
             // 同时持久化本窗口登录态，下次启动自动恢复（避免重新登录）
+            // getAllCookies 回调在后台线程，pool.update 改 @Published 需回到主线程
             pool.controller(for: m).fetchCookies { saved in
-                if var m2 = pool.sessions.first(where: { $0.id == sessionId }) {
-                    m2.cookies = saved
-                    pool.update(m2)
+                DispatchQueue.main.async {
+                    if var m2 = pool.sessions.first(where: { $0.id == sessionId }) {
+                        m2.cookies = saved
+                        pool.update(m2)
+                    }
                 }
             }
         }
