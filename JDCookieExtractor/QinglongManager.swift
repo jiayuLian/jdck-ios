@@ -133,7 +133,7 @@ final class QinglongManager {
     }
 
     /// 从 cookie 字符串解析 pt_pin（账号唯一标识）。形如 pt_pin=xxx;
-    private static func extractPtPin(_ cookie: String) -> String? {
+    static func extractPtPin(_ cookie: String) -> String? {
         for part in cookie.components(separatedBy: ";") {
             let trimmed = part.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("pt_pin=") {
