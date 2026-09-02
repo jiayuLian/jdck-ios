@@ -13,6 +13,7 @@ targets:
       - path: JDCookieExtractor/ContentView.swift
       - path: JDCookieExtractor/LoginWebView.swift
       - path: JDCookieExtractor/QinglongManager.swift
+      - path: JDCookieExtractor/Assets.xcassets
     info:
       path: JDCookieExtractor/Info.plist
       properties:
@@ -33,7 +34,7 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "15.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: "NO"
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 schemes:
   JDCookieExtractor:
     build:
