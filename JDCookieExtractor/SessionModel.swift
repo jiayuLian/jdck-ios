@@ -1,7 +1,7 @@
 import Foundation
 
-/// 一个登录窗口的持久化描述。每个窗口使用独立的 WKWebsiteDataStore（storeId），
-/// 因此各窗口的京东登录态彼此隔离、互不退出，且关闭 App 后依然保持登录。
+/// 一个登录窗口的持久化描述。每个窗口使用独立的 WKWebsiteDataStore（iOS 15 下用 nonPersistent 隔离），
+/// 登录态通过 cookis 字段手动持久化，因此各窗口互相隔离、且关闭 App 后依然可恢复登录。
 struct SessionModel: Identifiable, Codable {
     let id: UUID
     let storeId: UUID
@@ -9,6 +9,8 @@ struct SessionModel: Identifiable, Codable {
     var cookie: String
     var ptPin: String?
     var status: String
+    /// 本窗口的京东登录态（cookie），用于 App 重启后自动恢复，避免重新登录
+    var cookies: [SavedCookie]
 
     init(label: String) {
         self.id = UUID()
@@ -17,8 +19,21 @@ struct SessionModel: Identifiable, Codable {
         self.cookie = ""
         self.ptPin = nil
         self.status = "未提取"
+        self.cookies = []
     }
 
     /// 是否已成功提取到可用的 CK
     var isValid: Bool { !cookie.isEmpty && ptPin != nil }
+}
+
+/// 可序列化的 Cookie（iOS 15 兼容，用于本机持久化登录态）
+struct SavedCookie: Codable {
+    let name: String
+    let value: String
+    let domain: String
+    let path: String
+    let secure: Bool
+    let httpOnly: Bool
+    let expires: Double?
+    let sameSite: String?
 }
