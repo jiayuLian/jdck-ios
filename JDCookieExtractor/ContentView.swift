@@ -45,19 +45,22 @@ struct ContentView: View {
             }
             .navigationTitle("京东 CK 提取")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if showWebView {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("关闭") {
-                            showWebView = false
-                            extractStatus = "已关闭登录页"
-                        }
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("提取CK") {
-                            manualExtract()
-                        }
-                    }
+            .toolbar { webToolbarContent }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var webToolbarContent: some ToolbarContent {
+        if showWebView {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("关闭") {
+                    showWebView = false
+                    extractStatus = "已关闭登录页"
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("提取CK") {
+                    manualExtract()
                 }
             }
         }
