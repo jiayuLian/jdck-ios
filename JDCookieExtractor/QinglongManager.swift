@@ -106,10 +106,11 @@ final class QinglongManager {
             envId = env.id
         } else {
             // 无同账号 -> 新建 JD_COOKIE：此面板 POST /open/envs 接受数组 [{name,value,remarks}]，
-            // 返回 {"code":200,"data":[{id}]}（data 为数组）。
+            // 返回 {"code":200,"data":[{id}]}（data 为数组）。备注默认取 pt_pin（去百分号编码更可读）。
             struct EnvCreate: Encodable { let name: String; let value: String; let remarks: String? }
             struct IdR: Decodable { let data: [Inner]; struct Inner: Decodable { let id: Int } }
-            let body = try encoder.encode([EnvCreate(name: "JD_COOKIE", value: cookie, remarks: nil)])
+            let remarksPin = newPin.removingPercentEncoding ?? newPin
+            let body = try encoder.encode([EnvCreate(name: "JD_COOKIE", value: cookie, remarks: remarksPin)])
             let cURL = try buildURL(baseURL: baseURL, path: "/open/envs")
             let cReq = authRequest(url: cURL, method: "POST", body: body, token: token)
             let (cdata, cresponse) = try await URLSession.shared.data(for: cReq)
