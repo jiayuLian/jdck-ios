@@ -86,7 +86,7 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 SavedCookie(name: c.name, value: c.value, domain: c.domain, path: c.path,
                             secure: c.isSecure, httpOnly: c.isHTTPOnly,
                             expires: c.expiresDate?.timeIntervalSince1970,
-                            sameSite: c.isSameSiteStrict ? "strict" : (c.isSameSiteLax ? "lax" : nil))
+                            sameSite: nil)
             }
             completion(saved)
         }
