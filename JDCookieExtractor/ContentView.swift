@@ -1,171 +1,76 @@
 import SwiftUI
 import UIKit
 
-/// 统一的弹窗模型：推送/测试 成功或失败都走它
-struct AlertInfo: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-}
-
 struct ContentView: View {
+    @StateObject private var pool = SessionControllerPool()
     @AppStorage("ql_baseURL") private var baseURL: String = ""
     @AppStorage("ql_clientId") private var clientId: String = ""
     @AppStorage("ql_clientSecret") private var clientSecret: String = ""
-    @AppStorage("jd_cookie") private var jdCookie: String = ""
-
-    @State private var extractStatus: String = ""
     @State private var settingsStatus: String = ""
-    @State private var isPushing = false
-    @State private var showWebView = false
-    @State private var alertInfo: AlertInfo?
-    @StateObject private var webController = WebViewController()
 
-    private let loginURL = URL(string: "https://home.m.jd.com/myJd/home.action")!
+    private var configValid: Bool {
+        !baseURL.isEmpty && !clientId.isEmpty && !clientSecret.isEmpty
+    }
 
     var body: some View {
         TabView {
-            extractTab
-                .tabItem { Label("提取", systemImage: "key.fill") }
+            sessionsTab
+                .tabItem { Label("窗口", systemImage: "apps.2") }
             settingsTab
                 .tabItem { Label("青龙", systemImage: "server.rack") }
         }
-        // 全局弹窗：无论停留在哪个 Tab，推送/测试结果都会居中弹出
-        .alert(item: $alertInfo) { info in
-            Alert(
-                title: Text(info.title),
-                message: Text(info.message),
-                dismissButton: .default(Text("好"))
-            )
+        .alert(item: $pool.alertInfo) { info in
+            Alert(title: Text(info.title),
+                  message: Text(info.message),
+                  dismissButton: .default(Text("好")))
         }
+        .environmentObject(pool)
     }
 
-    // MARK: - 提取页
-    private var extractTab: some View {
+    // MARK: - 登录窗口列表
+    private var sessionsTab: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // 上半部分：WebView 或引导页
-                Group {
-                    if showWebView {
-                        LoginWebView(controller: webController, url: loginURL)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        introView
+            List {
+                if pool.sessions.isEmpty {
+                    Text("还没有登录窗口。点右上角「＋」新增一个，登录京东账号后提取 CK。每个窗口互相隔离，不要在同一窗口退出登录。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                ForEach(pool.sessions) { session in
+                    NavigationLink {
+                        SessionDetail(sessionId: session.id,
+                                      baseURL: baseURL, clientId: clientId, clientSecret: clientSecret)
+                            .environmentObject(pool)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.label).font(.headline)
+                            if let pin = session.ptPin, !pin.isEmpty {
+                                Text("pt_pin: \(pin)").font(.caption).foregroundColor(.green)
+                            } else {
+                                Text("尚未提取 CK").font(.caption).foregroundColor(.secondary)
+                            }
+                            if !session.status.isEmpty {
+                                Text(session.status).font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
-
-                Divider()
-
-                // 下半部分：Cookie 与操作
-                cookieSection
+                .onDelete { idx in
+                    idx.map { pool.sessions[$0].id }.forEach { pool.remove($0) }
+                }
             }
-            .navigationTitle("JDCookie")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { webToolbarContent }
-            .onAppear {
-                // 接上 WebView 的自动提取与错误回调（之前是空接，导致自动抓取无效）
-                webController.onCookieExtracted = { ck in
-                    guard !ck.isEmpty else { return }
-                    jdCookie = ck
-                    extractStatus = "✅ 已自动提取 Cookie（长度 \(ck.count)）"
-                }
-                webController.onError = { msg in
-                    extractStatus = "❌ \(msg)"
-                }
-                webController.onQQLoginAttempted = {
-                    extractStatus = "❌ 当前应用不支持 QQ 快速登录，请使用短信验证码或账号密码登录"
+            .navigationTitle("登录窗口")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { _ = pool.add() }) {
+                        Image(systemName: "plus")
+                    }
                 }
             }
         }
     }
 
-    @ToolbarContentBuilder
-    private var webToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            if showWebView {
-                Button("关闭") {
-                    showWebView = false
-                    extractStatus = "已关闭登录页"
-                }
-            }
-        }
-        ToolbarItem(placement: .navigationBarTrailing) {
-            if showWebView {
-                Button("提取CK") {
-                    manualExtract()
-                }
-            }
-        }
-    }
-
-    private var introView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "key.fill")
-                .font(.system(size: 48))
-                .foregroundColor(.red)
-            Text("点击开始登录京东")
-                .font(.headline)
-            Text("登录成功后，点击右上角「提取CK」即可获取 pt_key/pt_pin；也可等待自动提取")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Button("开始提取") {
-                showWebView = true
-                extractStatus = "正在打开京东登录页…"
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var cookieSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("当前 Cookie").font(.headline)
-                Spacer()
-                Button("复制") {
-                    UIPasteboard.general.string = jdCookie
-                    extractStatus = "已复制到剪贴板"
-                }
-                .disabled(jdCookie.isEmpty)
-            }
-
-            ScrollView {
-                Text(jdCookie.isEmpty ? "（登录京东后点击「提取CK」获取 pt_key/pt_pin）" : jdCookie)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 90)
-            .padding(6)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(8)
-
-            if !extractStatus.isEmpty {
-                Text(extractStatus)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Button(action: pushToQinglong) {
-                if isPushing {
-                    ProgressView()
-                } else {
-                    Text("推送到青龙").bold()
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .disabled(jdCookie.isEmpty || isPushing || !configValid)
-        }
-        .padding(10)
-    }
-
-    // MARK: - 青龙配置页
+    // MARK: - 青龙配置
     private var settingsTab: some View {
         NavigationView {
             Form {
@@ -182,21 +87,25 @@ struct ContentView: View {
                 }
 
                 Section {
-                    Button("测试连接") {
-                        Task { await testConnection() }
-                    }
-                    .disabled(!configValid)
-
+                    Button("测试连接") { Task { await testConnection() } }
+                        .disabled(!configValid)
                     if !settingsStatus.isEmpty {
                         Text(settingsStatus)
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
+                Section {
+                    Button("一键推送全部账号") { Task { await pushAll() } }
+                        .disabled(!configValid || pool.sessions.isEmpty)
+                    Text("依次把每个已提取 CK 的窗口推送到青龙，按 pt_pin 归位到对应 JD_COOKIE，互不串号。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Section("说明") {
-                    Text("在「提取」页点击「开始提取」打开京东 H5 登录页，登录成功后点击右上角「提取CK」手动抓取 pt_key/pt_pin；点击「推送到青龙」会写入或更新 JD_COOKIE 环境变量并启用。配置保存在本机。")
+                    Text("每个「窗口」是一个独立隔离的京东登录态，互不干扰、互不退出。登录后提取 CK 推送到青龙即可。多账号请各自开一个窗口；切勿在同一窗口退出登录（退出会导致该 CK 失效）。同一京东账号不要同时在手机京东 App 与本窗口登录，否则可能互顶掉线。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -205,61 +114,175 @@ struct ContentView: View {
         }
     }
 
-    private var configValid: Bool {
-        !baseURL.isEmpty && !clientId.isEmpty && !clientSecret.isEmpty
-    }
-
     // MARK: - 动作
-    private func manualExtract() {
-        extractStatus = "正在提取 Cookie…"
-        webController.extract { ck in
-            if ck.isEmpty {
-                extractStatus = "❌ 未找到 pt_key/pt_pin，请确认已在京东页面登录成功"
-            } else {
-                jdCookie = ck
-                extractStatus = "✅ 已提取 Cookie（长度 \(ck.count)）"
-            }
-        }
-    }
-
-    private func pushToQinglong() {
-        guard configValid else {
-            extractStatus = "请先在「青龙」页填写面板地址 / Client ID / Client Secret"
-            return
-        }
-        isPushing = true
-        let cookie = jdCookie
-        Task {
-            do {
-                let msg = try await QinglongManager.shared.pushCookie(
-                    baseURL: baseURL, clientId: clientId, clientSecret: clientSecret, cookie: cookie)
-                await MainActor.run {
-                    extractStatus = "✅ \(msg)"
-                    isPushing = false
-                    alertInfo = AlertInfo(title: "推送成功", message: msg)
-                }
-            } catch {
-                await MainActor.run {
-                    extractStatus = "❌ 失败：\(error.localizedDescription)"
-                    isPushing = false
-                    alertInfo = AlertInfo(title: "推送失败", message: error.localizedDescription)
-                }
-            }
-        }
-    }
-
     private func testConnection() async {
         do {
             let token = try await QinglongManager.shared.getToken(
                 baseURL: baseURL, clientId: clientId, clientSecret: clientSecret)
             await MainActor.run {
                 settingsStatus = "✅ 连接成功，token 长度 \(token.count)"
-                alertInfo = AlertInfo(title: "连接成功", message: "已成功获取 token（长度 \(token.count)），面板可正常通信。")
+                pool.alertInfo = AlertInfo(title: "连接成功",
+                                           message: "已成功获取 token（长度 \(token.count)），面板可正常通信。")
             }
         } catch {
             await MainActor.run {
                 settingsStatus = "❌ 连接失败：\(error.localizedDescription)"
-                alertInfo = AlertInfo(title: "连接失败", message: error.localizedDescription)
+                pool.alertInfo = AlertInfo(title: "连接失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func pushAll() async {
+        let targets = pool.sessions.filter { $0.isValid }
+        guard !targets.isEmpty else {
+            pool.alertInfo = AlertInfo(title: "无可用账号",
+                                       message: "没有已提取 CK 的窗口。请先到各窗口提取 CK。")
+            return
+        }
+        var ok = 0, fail = 0
+        var lines: [String] = []
+        for s in targets {
+            do {
+                let msg = try await QinglongManager.shared.pushCookie(
+                    baseURL: baseURL, clientId: clientId, clientSecret: clientSecret, cookie: s.cookie)
+                ok += 1
+                lines.append("✅ \(s.label): \(msg)")
+            } catch {
+                fail += 1
+                lines.append("❌ \(s.label): \(error.localizedDescription)")
+            }
+        }
+        await MainActor.run {
+            pool.alertInfo = AlertInfo(title: "推送完成（成功 \(ok) / 失败 \(fail)）",
+                                       message: lines.joined(separator: "\n"))
+        }
+    }
+}
+
+// MARK: - 单窗口详情（独立 WebView + 提取/推送）
+struct SessionDetail: View {
+    @EnvironmentObject private var pool: SessionControllerPool
+    let sessionId: UUID
+    let baseURL: String, clientId: String, clientSecret: String
+
+    @State private var isPushing = false
+
+    private var session: SessionModel? { pool.sessions.first(where: { $0.id == sessionId }) }
+    private var configValid: Bool { !baseURL.isEmpty && !clientId.isEmpty && !clientSecret.isEmpty }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let s = session {
+                SessionWebView(controller: pool.controller(for: s))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text("窗口已删除").foregroundColor(.secondary)
+            }
+            Divider()
+            actionSection
+        }
+        .navigationTitle(session?.label ?? "窗口")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if let s = session { pool.controller(for: s).ensureLoaded(url: jdLoginURL) }
+            bindCallbacks()
+        }
+    }
+
+    private func bindCallbacks() {
+        guard let s = session else { return }
+        let c = pool.controller(for: s)
+        c.onCookieExtracted = { ck in
+            guard !ck.isEmpty else { return }
+            if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                m.cookie = ck
+                m.ptPin = QinglongManager.extractPtPin(ck)
+                m.status = "✅ 已提取 Cookie"
+                pool.update(m)
+            }
+        }
+        c.onError = { msg in
+            if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                m.status = "❌ \(msg)"
+                pool.update(m)
+            }
+        }
+        c.onQQLoginAttempted = {
+            if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                m.status = "❌ 不支持 QQ 快速登录，请用短信/密码登录"
+                pool.update(m)
+            }
+        }
+    }
+
+    private var actionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let s = session {
+                HStack {
+                    Text("当前 CK").font(.headline)
+                    Spacer()
+                    Button("复制") {
+                        UIPasteboard.general.string = s.cookie
+                        if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                            m.status = "已复制到剪贴板"
+                            pool.update(m)
+                        }
+                    }
+                    .disabled(s.cookie.isEmpty)
+                }
+
+                if !s.status.isEmpty {
+                    Text(s.status)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack {
+                    Button("提取CK") { pool.controller(for: s).extract() }
+                    Button("重新登录") { pool.controller(for: s).reload(url: jdLoginURL) }
+                }
+
+                Button(action: push) {
+                    if isPushing {
+                        ProgressView()
+                    } else {
+                        Text("推送到青龙").bold()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .disabled(s.cookie.isEmpty || isPushing || !configValid)
+            }
+        }
+        .padding(10)
+    }
+
+    private func push() {
+        guard let s = session, !s.cookie.isEmpty else { return }
+        isPushing = true
+        let cookie = s.cookie
+        Task {
+            do {
+                let msg = try await QinglongManager.shared.pushCookie(
+                    baseURL: baseURL, clientId: clientId, clientSecret: clientSecret, cookie: cookie)
+                await MainActor.run {
+                    if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                        m.status = "✅ \(msg)"
+                        pool.update(m)
+                    }
+                    isPushing = false
+                    pool.alertInfo = AlertInfo(title: "推送成功", message: msg)
+                }
+            } catch {
+                await MainActor.run {
+                    if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                        m.status = "❌ 失败：\(error.localizedDescription)"
+                        pool.update(m)
+                    }
+                    isPushing = false
+                    pool.alertInfo = AlertInfo(title: "推送失败", message: error.localizedDescription)
+                }
             }
         }
     }
