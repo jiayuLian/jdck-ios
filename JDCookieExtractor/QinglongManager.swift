@@ -117,9 +117,9 @@ final class QinglongManager {
             envId = newId
         }
 
-        // 3) 启用
-        struct EnableBody: Encodable { let id: Int; let status: Int }
-        let ebody = try encoder.encode([EnableBody(id: envId, status: 1)])
+        // 3) 启用：此面板（ql.cute6696.cn）的 /open/envs/enable 接受纯数字 id 数组 [id]，
+        //    不接受 [{"id":, "status":}]（会返回 HTTP 400）。
+        let ebody = try encoder.encode([envId])
         let eURL = try buildURL(baseURL: baseURL, path: "/open/envs/enable")
         let eReq = authRequest(url: eURL, method: "PUT", body: ebody, token: token)
         let (edata, eresponse) = try await URLSession.shared.data(for: eReq)
