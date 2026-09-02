@@ -45,15 +45,26 @@ final class QinglongManager {
         return req
     }
 
-    /// 青龙响应很宽松：只要 code == 200 就认为成功，不强制解析 data 结构。
-    private func checkOK(_ data: Data, fallback: String) throws {
+    /// 青龙响应校验：
+    /// 1) HTTP 2xx 且响应体为空 -> 视为成功（部分面板/反代 PUT 成功但返回空体）。
+    /// 2) JSON 且 code == 200 -> 视为成功。
+    /// 3) HTTP 2xx 但非 JSON -> 也视为成功（反代可能返回纯文本/HTML 兜底）。
+    /// 4) 其余情况（HTTP 非 2xx 或 JSON code != 200）-> 抛出具体错误。
+    private func checkOK(_ data: Data, response: URLResponse?, fallback: String) throws {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if (200..<300).contains(status) && data.isEmpty { return }
+
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let code = json["code"] as? Int {
             if code == 200 { return }
-            throw QinglongError(msg: (json["message"] as? String) ?? fallback)
+            let msg = json["message"] as? String
+            throw QinglongError(msg: (msg?.isEmpty == false ? msg! : fallback))
         }
-        // 非 JSON（如 HTML 错误页）
-        throw QinglongError(msg: "服务器返回异常，请检查面板地址")
+
+        if (200..<300).contains(status) { return }
+
+        let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "（无法读取）"
+        throw QinglongError(msg: "服务器返回异常 (HTTP \(status))，请检查面板地址。响应片段：\(snippet)")
     }
 
     /// 按 pt_pin（账号唯一标识）匹配青龙里的 JD_COOKIE，与安卓原版 jdck-android 逻辑一致：
@@ -90,8 +101,8 @@ final class QinglongManager {
             let body = try encoder.encode(EnvUpdate(id: env.id, name: env.name, value: cookie, remarks: env.remarks))
             let updURL = try buildURL(baseURL: baseURL, path: "/open/envs")
             let updReq = authRequest(url: updURL, method: "PUT", body: body, token: token)
-            let (udata, _) = try await URLSession.shared.data(for: updReq)
-            try checkOK(udata, fallback: "更新环境变量失败")
+            let (udata, uresponse) = try await URLSession.shared.data(for: updReq)
+            try checkOK(udata, response: uresponse, fallback: "更新环境变量失败")
             envId = env.id
         } else {
             // 无同账号 -> 新建 JD_COOKIE
@@ -111,8 +122,8 @@ final class QinglongManager {
         let ebody = try encoder.encode([EnableBody(id: envId, status: 1)])
         let eURL = try buildURL(baseURL: baseURL, path: "/open/envs/enable")
         let eReq = authRequest(url: eURL, method: "PUT", body: ebody, token: token)
-        let (edata, _) = try await URLSession.shared.data(for: eReq)
-        try checkOK(edata, fallback: "启用环境变量失败")
+        let (edata, eresponse) = try await URLSession.shared.data(for: eReq)
+        try checkOK(edata, response: eresponse, fallback: "启用环境变量失败")
 
         return target == nil
             ? "已新建账号 \(newPin) 的 JD_COOKIE（env id \(envId)）并启用"
