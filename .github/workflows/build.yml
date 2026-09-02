@@ -20,6 +20,13 @@ jobs:
           rm -rf JDCookieExtractor.xcodeproj
           xcodegen generate
 
+      - name: Select Xcode 16 (xcodegen emits Xcode 16 project format)
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
       - name: Build unsigned .app
         run: |
           xcodebuild -project JDCookieExtractor.xcodeproj \
