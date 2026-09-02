@@ -11,7 +11,10 @@ targets:
     sources:
       - path: JDCookieExtractor/JDCookieExtractorApp.swift
       - path: JDCookieExtractor/ContentView.swift
-      - path: JDCookieExtractor/LoginWebView.swift
+      - path: JDCookieExtractor/SessionModel.swift
+      - path: JDCookieExtractor/SessionWebController.swift
+      - path: JDCookieExtractor/SessionWebView.swift
+      - path: JDCookieExtractor/SessionControllerPool.swift
       - path: JDCookieExtractor/QinglongManager.swift
       - path: JDCookieExtractor/Assets.xcassets
     info:
