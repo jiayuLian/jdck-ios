@@ -1,4 +1,4 @@
-# 京东 CK 提取（iOS · 巨魔 TrollStore 版）
+# 京东 CK 提取（IOS · 巨魔 TrollStore 版）
 
 功能与 Android 版「京东提取ck对接青龙」完全一致：
 
