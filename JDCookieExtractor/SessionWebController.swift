@@ -126,15 +126,29 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
 
     // MARK: - WKNavigationDelegate / WKUIDelegate
 
+    /// 单次导航内只提取一次 cookie，避免 didFinish 与 navigationResponse 重复触发 getAllCookies。
+    /// 每个顶层导航开始时重置标记，从而取到最早可用的 cookie（登录重定向中途即可抓到）。
+    private var extractedThisNavigation = false
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        extractedThisNavigation = false
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        extract()
+        extractOnce()
     }
 
     func webView(_ webView: WKWebView,
                  decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        extract()
+        extractOnce()
         decisionHandler(.allow)
+    }
+
+    private func extractOnce() {
+        guard !extractedThisNavigation else { return }
+        extractedThisNavigation = true
+        extract()
     }
 
     func webView(_ webView: WKWebView,
