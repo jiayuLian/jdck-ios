@@ -13,14 +13,12 @@ final class QinglongManager {
 
     private func buildURL(baseURL: String, path: String, query: [URLQueryItem] = []) throws -> URL {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var url = URL(string: trimmed) else { throw QinglongError(msg: "面板地址无效") }
-        url.append(path: path)
-        if !query.isEmpty {
-            var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            comps.queryItems = query
-            url = comps.url!
-        }
-        return url
+        let base = trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+        guard let url = URL(string: base + path) else { throw QinglongError(msg: "面板地址无效") }
+        guard !query.isEmpty else { return url }
+        var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        comps.queryItems = query
+        return comps.url ?? url
     }
 
     func getToken(baseURL: String, clientId: String, clientSecret: String) async throws -> String {
