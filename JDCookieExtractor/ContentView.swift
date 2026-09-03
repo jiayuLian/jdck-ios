@@ -104,6 +104,14 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
 
+                Section {
+                    Button("一键检测全部账号") { Task { await checkAll() } }
+                        .disabled(pool.sessions.isEmpty)
+                    Text("依次在每个已登录窗口加载京东个人页，依据落页判断 CK 是否有效，结果以弹窗汇总（类似「一键推送全部账号」）。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Section("说明") {
                     Text("每个「窗口」是一个独立隔离的京东登录态，互不干扰、互不退出。登录后提取 CK 推送到青龙即可。多账号请各自开一个窗口；切勿在同一窗口退出登录（退出会导致该 CK 失效）。同一京东账号不要同时在手机京东 App 与本窗口登录，否则可能互顶掉线。")
                         .font(.caption)
@@ -154,6 +162,28 @@ struct ContentView: View {
         }
         await MainActor.run {
             pool.alertInfo = AlertInfo(title: "推送完成（成功 \(ok) / 失败 \(fail)）",
+                                       message: lines.joined(separator: "\n"))
+        }
+    }
+
+    private func checkAll() async {
+        let targets = pool.sessions.filter { !$0.cookies.isEmpty }
+        guard !targets.isEmpty else {
+            pool.alertInfo = AlertInfo(title: "无可用账号",
+                                       message: "没有已提取 CK 的窗口。请先到各窗口登录并提取 CK。")
+            return
+        }
+        var lines: [String] = []
+        for s in targets {
+            let (label, msg) = await withCheckedContinuation { cont in
+                pool.controller(for: s).checkValidity(cookies: s.cookies) { _, msg in
+                    cont.resume(returning: (s.label, msg))
+                }
+            }
+            lines.append("\(msg)  \(label)")
+        }
+        await MainActor.run {
+            pool.alertInfo = AlertInfo(title: "检测完成（\(lines.count) 个）",
                                        message: lines.joined(separator: "\n"))
         }
     }
@@ -266,6 +296,17 @@ struct SessionDetail: View {
                 HStack {
                     Button("提取CK") { pool.controller(for: s).extract() }
                     Button("重新登录") { pool.controller(for: s).reload(url: jdLoginURL) }
+                    Button("检测CK") {
+                        pool.controller(for: s).checkValidity(cookies: s.cookies) { ok, msg in
+                            DispatchQueue.main.async {
+                                if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                                    m.status = msg
+                                    pool.update(m)
+                                }
+                            }
+                        }
+                    }
+                    .disabled(s.cookies.isEmpty)
                 }
 
                 Button(action: push) {
