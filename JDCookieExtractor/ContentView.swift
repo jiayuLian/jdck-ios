@@ -15,7 +15,7 @@ struct ContentView: View {
     var body: some View {
         TabView {
             sessionsTab
-                .tabItem { Label("窗口", systemImage: "apps.2") }
+                .tabItem { Label("窗口", systemImage: "rectangle.stack") }
             settingsTab
                 .tabItem { Label("青龙", systemImage: "server.rack") }
         }
