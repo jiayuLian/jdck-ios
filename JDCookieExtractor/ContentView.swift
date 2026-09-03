@@ -196,6 +196,7 @@ struct SessionDetail: View {
     let baseURL: String, clientId: String, clientSecret: String
 
     @State private var isPushing = false
+    @AppStorage("show_ck") private var showCK: Bool = false
 
     private var session: SessionModel? { pool.sessions.first(where: { $0.id == sessionId }) }
     private var configValid: Bool { !baseURL.isEmpty && !clientId.isEmpty && !clientSecret.isEmpty }
@@ -272,8 +273,12 @@ struct SessionDetail: View {
                     .disabled(s.cookie.isEmpty)
                 }
 
-                // 直接展示抓取到的 CK（可滚动查看 / 长按选择复制），无需先复制到别处才能看到
-                if !s.cookie.isEmpty {
+                // 是否显示 CK 明文：默认关闭，避免旁人窥屏看到 cookie；开关状态持久化到 UserDefaults
+                Toggle("显示 CK 明文", isOn: $showCK)
+                    .font(.caption)
+
+                // 仅在开关打开时展示 CK 明文（可滚动查看 / 长按选择复制），默认不显示
+                if showCK && !s.cookie.isEmpty {
                     ScrollView {
                         Text(s.cookie)
                             .font(.system(.caption, design: .monospaced))
