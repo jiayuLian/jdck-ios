@@ -71,8 +71,12 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 .secure: c.secure,
                 .init(rawValue: "HttpOnly"): c.httpOnly ? "TRUE" : "FALSE"
             ]
-            if let e = c.expires { props[.expires] = Date(timeIntervalSince1970: e) }
-            // 优先用完整属性构造；若个别属性（如 expires/HttpOnly）导致构造失败则降级重试，
+            // 关键：恢复登录态时【不】设置 .expires。
+            // 京东 pt_key 的 expires 是登录时抓到的绝对过期时间，App 重启后该时间可能已过期；
+            // 若原样注入，WKWebView 会判定 cookie 过期而不再发送，页面显示"需重新登录"，
+            // 即便京东服务端仍认该 pt_key（京东按值校验，与本地 expires 无关）。
+            // 改为 session cookie 注入，由京东按 pt_key 值校验；服务端未真正失效即可正常恢复。
+            // 优先用完整属性构造；若个别属性（如 HttpOnly）导致构造失败则降级重试，
             // 避免某条 cookie 注入失败而丢失登录态。
             func makeCookie(_ p: [HTTPCookiePropertyKey: Any]) -> HTTPCookie? {
                 HTTPCookie(properties: p)
@@ -80,7 +84,6 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
             var cookie = makeCookie(props)
             if cookie == nil {
                 var p2 = props
-                p2.removeValue(forKey: .expires)
                 p2.removeValue(forKey: .init(rawValue: "HttpOnly"))
                 cookie = makeCookie(p2)
             }
