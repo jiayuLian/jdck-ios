@@ -242,6 +242,20 @@ struct SessionDetail: View {
                     .disabled(s.cookie.isEmpty)
                 }
 
+                // 直接展示抓取到的 CK（可滚动查看 / 长按选择复制），无需先复制到别处才能看到
+                if !s.cookie.isEmpty {
+                    ScrollView {
+                        Text(s.cookie)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                    .frame(maxHeight: 96)
+                    .background(Color.gray.opacity(0.12))
+                    .cornerRadius(8)
+                }
+
                 if !s.status.isEmpty {
                     Text(s.status)
                         .font(.caption)
