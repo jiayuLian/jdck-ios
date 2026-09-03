@@ -133,12 +133,22 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     /// 每个顶层导航开始时重置标记，从而取到最早可用的 cookie（登录重定向中途即可抓到）。
     private var extractedThisNavigation = false
 
+    /// 自检 CK 有效性时的一次性回调；didFinish 触发评估登录态
+    private var pendingCheck: ((Bool, String) -> Void)?
+    private var checkTimer: DispatchWorkItem?
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         extractedThisNavigation = false
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         extractOnce()
+        if pendingCheck != nil {
+            checkTimer?.cancel()
+            let w = DispatchWorkItem { [weak self] in self?.runLoginStateCheck() }
+            checkTimer = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: w)
+        }
     }
 
     func webView(_ webView: WKWebView,
@@ -152,6 +162,39 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         guard !extractedThisNavigation else { return }
         extractedThisNavigation = true
         extract()
+    }
+
+    /// 自检本账号 CK 是否有效：注入本窗口 cookie 后加载京东个人页，依据最终落页判断。
+    /// 有效（落在个人页）-> (true, "✅ CK 有效")；被重定向到登录页 -> (false, "❌ CK 已失效")
+    func checkValidity(cookies saved: [SavedCookie], completion: @escaping (Bool, String) -> Void) {
+        pendingCheck = completion
+        if !saved.isEmpty {
+            applyCookies(saved) { self._load(jdLoginURL) }
+        } else {
+            _load(jdLoginURL)
+        }
+    }
+
+    private func runLoginStateCheck() {
+        guard let check = pendingCheck else { return }
+        pendingCheck = nil
+        let url = webView.url?.absoluteString.lowercased() ?? ""
+        if url.contains("passport") || url.contains("login.jd") || url.contains("/login") || url.contains("qrscan") {
+            check(false, "❌ CK 已失效（已跳转登录页）")
+            return
+        }
+        webView.evaluateJavaScript("document.body ? document.body.innerText : ''") { text, _ in
+            let t = ((text as? String) ?? "").lowercased()
+            DispatchQueue.main.async {
+                if t.contains("登录京东") || t.contains("账号登录") || t.contains("扫码登录") || (t.contains("登录") && t.contains("免费注册")) {
+                    check(false, "❌ CK 已失效（显示为登录页）")
+                } else if t.contains("我的京东") || t.contains("我的订单") || t.contains("退出登录") || t.contains("我的关注") || t.contains("我的资产") {
+                    check(true, "✅ CK 有效")
+                } else {
+                    check(true, "✅ CK 有效（未跳转登录页）")
+                }
+            }
+        }
     }
 
     func webView(_ webView: WKWebView,
@@ -187,10 +230,20 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard !isCancelledError(error) else { return }
         onError?("页面加载失败：\(error.localizedDescription)")
+        if let check = pendingCheck {
+            pendingCheck = nil
+            checkTimer?.cancel()
+            check(false, "❌ 检测失败：\(error.localizedDescription)")
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         guard !isCancelledError(error) else { return }
         onError?("页面加载失败：\(error.localizedDescription)")
+        if let check = pendingCheck {
+            pendingCheck = nil
+            checkTimer?.cancel()
+            check(false, "❌ 检测失败：\(error.localizedDescription)")
+        }
     }
 }
