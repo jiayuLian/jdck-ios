@@ -36,9 +36,12 @@ struct ContentView: View {
             UNUserNotificationCenter.current().delegate = CKMonitor.shared
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            // 进入前台时把会话池交给监控器，并按开关启停轮询
+            // 进入前台：交给监控器 + 当前可见窗口 cookie 自愈（#2）；
+            // 并立即自动排查一次所有账号 CK 状态，让「窗口列表」直接标红失效账号
+            // （周期轮询开启→启动周期+立即一轮；关闭→仍扫一次，不开周期）
             CKMonitor.shared.pool = pool
-            if pollEnabled { CKMonitor.shared.start() } else { CKMonitor.shared.stop() }
+            pool.refreshActiveIfNeeded()
+            if pollEnabled { CKMonitor.shared.start() } else { CKMonitor.shared.scanNow() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             // 退到后台即停止轮询（用户选了"仅前台"）
@@ -70,6 +73,12 @@ struct ContentView: View {
                                 Text("pt_pin: \(pin)").font(.caption).foregroundColor(.green)
                             } else {
                                 Text("尚未提取 CK").font(.caption).foregroundColor(.secondary)
+                            }
+                            // 最近一次 CK 自检结果：直接标红失效账号，无需逐个点开窗口
+                            if let ex = session.ckExpired {
+                                Text(ex ? "⚠️ CK 已失效" : "✅ CK 有效")
+                                    .font(.caption)
+                                    .foregroundColor(ex ? .red : .green)
                             }
                             if !session.status.isEmpty {
                                 Text(session.status).font(.caption2).foregroundColor(.secondary)
@@ -212,6 +221,7 @@ struct ContentView: View {
                     cont.resume(returning: (s.label, msg))
                 }
             }
+            pool.setCkExpired(id: s.id, expired: !msg.hasPrefix("✅"))
             lines.append("\(msg)  \(label)")
         }
         await MainActor.run {
@@ -336,12 +346,13 @@ struct SessionDetail: View {
 
                 HStack {
                     Button("提取CK") { pool.controller(for: s).extract() }
-                    Button("重新登录") { pool.controller(for: s).reload(url: jdLoginURL) }
+                    Button("重新登录") { pool.controller(for: s).clearAndReload(url: jdLoginURL) }
                     Button("检测CK") {
                         pool.controller(for: s).checkValidity(cookies: s.cookies) { ok, msg in
                             DispatchQueue.main.async {
                                 if var m = pool.sessions.first(where: { $0.id == sessionId }) {
                                     m.status = msg
+                                    m.ckExpired = !msg.hasPrefix("✅")
                                     pool.update(m)
                                 }
                             }
