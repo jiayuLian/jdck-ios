@@ -1,11 +1,16 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 struct ContentView: View {
     @StateObject private var pool = SessionControllerPool()
     @AppStorage("ql_baseURL") private var baseURL: String = ""
     @AppStorage("ql_clientId") private var clientId: String = ""
     @AppStorage("ql_clientSecret") private var clientSecret: String = ""
+    /// CK 过期自动检测：是否开启（仅前台轮询）
+    @AppStorage("ck_poll_enabled") private var pollEnabled: Bool = true
+    /// CK 过期自动检测：轮询间隔（分钟，5–120，步进 5）
+    @AppStorage("ck_poll_minutes") private var pollMinutes: Int = 30
     @State private var settingsStatus: String = ""
 
     private var configValid: Bool {
@@ -25,6 +30,24 @@ struct ContentView: View {
                   dismissButton: .default(Text("好")))
         }
         .environmentObject(pool)
+        .onAppear {
+            // 申请本地通知权限，并把通知代理指向监控器（前台也弹横幅）
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            UNUserNotificationCenter.current().delegate = CKMonitor.shared
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            // 进入前台时注入数据访问器，并按开关启停轮询
+            CKMonitor.shared.sessionProvider = { [weak self] in self?.pool.sessions ?? [] }
+            CKMonitor.shared.controllerProvider = { [weak self] s in self?.pool.controller(for: s) }
+            if pollEnabled { CKMonitor.shared.start() } else { CKMonitor.shared.stop() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            // 退到后台即停止轮询（用户选了"仅前台"）
+            CKMonitor.shared.stop()
+        }
+        .onChange(of: pollEnabled) { _ in
+            if pollEnabled { CKMonitor.shared.start() } else { CKMonitor.shared.stop() }
+        }
     }
 
     // MARK: - 登录窗口列表
@@ -108,6 +131,16 @@ struct ContentView: View {
                     Button("一键检测全部账号") { Task { await checkAll() } }
                         .disabled(pool.sessions.isEmpty)
                     Text("依次在每个已登录窗口加载京东个人页，依据落页判断 CK 是否有效，结果以弹窗汇总（类似「一键推送全部账号」）。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Section("CK 过期自动检测（仅前台）") {
+                    Toggle("开启自动检测", isOn: $pollEnabled)
+                    Stepper(value: $pollMinutes, in: 5...120, step: 5) {
+                        Text("轮询间隔：\(pollMinutes) 分钟")
+                    }
+                    Text("App 处于前台时，每隔设定时间自动检测各账号 CK 是否失效；发现失效会弹出本机通知提醒你更新。后台及被杀掉后不检测（你已有 PushPlus 兜底）。检测时会短暂重载对应窗口的页面，间隔调大可减少打扰。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
