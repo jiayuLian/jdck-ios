@@ -6,8 +6,7 @@ struct ContentView: View {
     @AppStorage("ql_baseURL") private var baseURL: String = ""
     @AppStorage("ql_clientId") private var clientId: String = ""
     @AppStorage("ql_clientSecret") private var clientSecret: String = ""
-    /// 无感检测冷却（分钟）：打开 App / 切回前台时，距上次自动检测不足该分钟数则跳过，省流量+避免触发京东风控。
-    /// 与 CKMonitor 共用同一 UserDefaults key，改这个值即时生效。
+    /// 无感检测冷却间隔（分钟，5–120，步进 5），与 CKMonitor 共用同一 key
     @AppStorage("ck_scan_cooldown_min") private var cooldownMinutes: Int = 15
     @State private var settingsStatus: String = ""
 
@@ -28,16 +27,13 @@ struct ContentView: View {
                   dismissButton: .default(Text("好")))
         }
         .environmentObject(pool)
-        .onAppear {
-            // 打开 App 时把会话池交给监控器
-            CKMonitor.shared.pool = pool
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            // 进入前台：当前可见窗口 cookie 自愈（#2）；
-            // 并立即并发、无感排查所有账号 CK 状态，让「窗口列表」直接标红失效账号
+            // 进入前台：当前可见窗口 cookie 自愈（#2），并自动无感排查一次所有账号 CK 状态，
+            // 让「窗口列表」直接标红失效账号。检测带冷却（默认 15 分钟），
+            // 频繁切前后台不会反复重扫，零资源消耗。
             CKMonitor.shared.pool = pool
             pool.refreshActiveIfNeeded()
-            Task { await CKMonitor.shared.scanNow() }
+            CKMonitor.shared.scanNow()
         }
     }
 
@@ -132,20 +128,17 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Section("无感检测（打开 App 标红失效账号）") {
+                Section("无感检测") {
                     Stepper(value: $cooldownMinutes, in: 5...120, step: 5) {
-                        Text("检测冷却：\(cooldownMinutes) 分钟")
+                        Text("冷却间隔：\(cooldownMinutes) 分钟")
                     }
-                    Text("打开 App / 切回前台时自动并发无感检测各账号 CK 并标红失效项；距上次检测不足上方分钟数则跳过，省流量并避免触发京东风控。CK 过期是天级事件，无需分钟级实时。需要立刻看最新状态，用上方「一键检测全部账号」。被杀掉后由服务器侧 PushPlus 兜底。")
+                    Text("打开 App / 切回前台时自动无感检测各账号 CK 是否失效并标红；两次检测间隔不足设定分钟数则跳过，避免反复打京东（省流量、防风控）。想更灵敏调小、想更省调大。被杀掉后不检测（24/7 兜底靠服务器侧 PushPlus）。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
                 Section("说明") {
                     Text("每个「窗口」是一个独立隔离的京东登录态，互不干扰、互不退出。登录后提取 CK 推送到青龙即可。多账号请各自开一个窗口；切勿在同一窗口退出登录（退出会导致该 CK 失效）。同一京东账号不要同时在手机京东 App 与本窗口登录，否则可能互顶掉线。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("打开 App / 切回前台时会自动无感检测各账号 CK 并标红失效项；为省流量与避免触发风控，距上次检测不足 15 分钟则跳过（CK 过期是天级事件，无需分钟级实时）。需要立刻看最新状态，用上方「一键检测全部账号」。被杀掉后由服务器侧 PushPlus 兜底通知。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
