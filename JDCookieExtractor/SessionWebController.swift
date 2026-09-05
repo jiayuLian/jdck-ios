@@ -36,15 +36,36 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         super.init()
     }
 
-    /// 首次进入窗口时加载京东登录页（重复进入不重载，保留登录态）。
-    /// restore 非空时，先把已保存的 cookie 注入本窗口存储，再加载（实现关 App 后仍登录）。
+    /// 每次进入窗口时，确保本窗口显示的是「该窗口自己的账号」。
+    /// 窗口使用 nonPersistent 存储，pop 出视图层级或 Web 进程被回收后 cookie 会被系统清空，
+    /// 因此不能像之前那样「loaded 一次就跳过」——否则回到该窗口会停在登录页（重启能好正是因为它走了首次注入分支）。
+    /// 做法：有已存 cookie 时，比对存储里现有的 pt_key 与要恢复的 pt_key：
+    ///   - 一致：说明本窗口存储完好，无需重载（避免闪烁）；
+    ///   - 不一致/为空：重新注入本窗口 cookie 再加载（自愈 + 防串号）。
+    /// 这样 App 内来回切换与重启行为一致，且多窗口隔离更稳。
     func ensureLoaded(url: URL, restore: [SavedCookie] = []) {
-        guard !loaded else { return }
-        loaded = true
-        if !restore.isEmpty {
-            applyCookies(restore) { self._load(url) }
-        } else {
-            _load(url)
+        guard !restore.isEmpty else {
+            // 全新窗口（还没有任何登录态）：仅首次加载一次
+            if !loaded { loaded = true; _load(url) }
+            return
+        }
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        store.getAllCookies { raw in
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                let want = restore.first(where: { $0.name == "pt_key" })?.value
+                let have = raw.first(where: { $0.domain.contains("jd.com") && $0.name == "pt_key" })?.value
+                if have == want {
+                    // 本窗口存储里已是正确的账号 cookie，无需重载
+                    if !self.loaded { self.loaded = true; self._load(url) }
+                    return
+                }
+                // 存储为空（被系统回收）或串号：重新注入本窗口 cookie 并加载
+                self.applyCookies(restore) {
+                    self.loaded = true
+                    self._load(url)
+                }
+            }
         }
     }
 
