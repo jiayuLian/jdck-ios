@@ -53,6 +53,17 @@ final class SessionControllerPool: ObservableObject {
         save()
     }
 
+    /// 当前可见（已打开）的窗口 id，供 App 回到前台时对该窗口做 cookie 自愈（#2）
+    var activeSessionId: UUID?
+
+    /// App 回到前台时调用：对当前可见窗口重新比对并注入 cookie，
+    /// 修复「窗口停在前台、但后台期间 nonPersistent 存储被系统回收」导致回到登录页的问题。
+    func refreshActiveIfNeeded() {
+        guard let id = activeSessionId,
+              let s = sessions.first(where: { $0.id == id }) else { return }
+        controller(for: s).ensureLoaded(url: jdLoginURL, restore: s.cookies)
+    }
+
     /// 取（或创建）某窗口的 WebView 控制器，保证每个 storeId 只对应一个实例
     func controller(for session: SessionModel) -> SessionWebController {
         if let c = controllers[session.id] { return c }
