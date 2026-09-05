@@ -46,12 +46,9 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     ///   - 不一致/为空：重新注入本窗口 cookie 再加载（自愈 + 防串号）。
     /// 这样 App 内来回切换与重启行为一致，且多窗口隔离更稳。
     func ensureLoaded(url: URL, restore: [SavedCookie] = []) {
-        guard !restoring else { return }
-        restoring = true
-        if restore.isEmpty {
+        guard !restore.isEmpty else {
             // 全新窗口（还没有任何登录态）：仅首次加载一次
             if !loaded { loaded = true; _load(url) }
-            restoring = false
             return
         }
         let store = webView.configuration.websiteDataStore.httpCookieStore
@@ -61,29 +58,22 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 let want = restore.first(where: { $0.name == "pt_key" })?.value
                 let have = raw.first(where: { $0.domain.contains("jd.com") && $0.name == "pt_key" })?.value
                 if have == want {
-                    // 本窗口存储里已是正确的账号 cookie，无需重载（避免闪烁）
+                    // 本窗口存储里已是正确的账号 cookie，无需重载
                     if !self.loaded { self.loaded = true; self._load(url) }
-                    self.restoring = false
-                } else {
-                    // 存储为空（被系统回收）或串号：重新注入本窗口 cookie 并加载
-                    self.applyCookies(restore) {
-                        self.loaded = true
-                        self._load(url)
-                        self.restoring = false
-                    }
+                    return
+                }
+                // 存储为空（被系统回收）或串号：重新注入本窗口 cookie 并加载
+                self.applyCookies(restore) {
+                    self.loaded = true
+                    self._load(url)
                 }
             }
         }
     }
 
-    /// 重新登录：清空本窗口独立存储的全部 cookie 再打开登录页（#3）。
-    /// 否则旧 pt_key 仍在 store 内，京东会直接跳首页，导致无法切换账号。
-    func clearAndReload(url: URL) {
-        let store = webView.configuration.websiteDataStore
-        store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
-                         modifiedSince: Date.distantPast) {
-            DispatchQueue.main.async { self._load(url) }
-        }
+    /// 重新打开登录页（用于会话过期后重新登录，不会退出其它窗口）
+    func reload(url: URL) {
+        _load(url)
     }
 
     private func _load(_ url: URL) {
@@ -153,8 +143,6 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 return
             }
             let cookie = "pt_key=\(pk.value);pt_pin=\(pp.value);"
-            // getAllCookies 的回调线程不保证是主线程；onCookieExtracted 内部会改
-            // @Published（pool.update），必须在主线程执行，否则存在数据竞争。
             DispatchQueue.main.async {
                 self.onCookieExtracted?(cookie)
                 completion?(cookie)
