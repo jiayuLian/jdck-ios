@@ -153,6 +153,8 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
                 return
             }
             let cookie = "pt_key=\(pk.value);pt_pin=\(pp.value);"
+            // getAllCookies 的回调线程不保证是主线程；onCookieExtracted 内部会改
+            // @Published（pool.update），必须在主线程执行，否则存在数据竞争。
             DispatchQueue.main.async {
                 self.onCookieExtracted?(cookie)
                 completion?(cookie)
