@@ -79,4 +79,11 @@ final class SessionControllerPool: ObservableObject {
             save()
         }
     }
+
+    /// 写入某窗口最近一次 CK 自检结果（用于列表标红），主线程调用
+    func setCkExpired(id: UUID, expired: Bool) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[i].ckExpired = expired
+        save()
+    }
 }
