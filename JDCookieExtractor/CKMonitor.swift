@@ -23,13 +23,18 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
     func start() {
         guard !running else { return }
         running = true
-        scheduleNext()
+        runCycle() // 立即排查一轮，不等间隔
     }
 
     func stop() {
         running = false
         nextWork?.cancel()
         nextWork = nil
+    }
+
+    /// 仅排查一次（不排下一轮）：用于「关闭周期轮询」时，打开 App 仍立即扫一遍所有账号并标红失效窗口。
+    func scanNow() {
+        runCycle(scheduleNext: false)
     }
 
     private func intervalSeconds() -> TimeInterval {
@@ -45,11 +50,11 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
         DispatchQueue.main.asyncAfter(deadline: .now() + intervalSeconds(), execute: w)
     }
 
-    private func runCycle() {
-        guard running else { return }
-        guard let pool = pool else { scheduleNext(); return }
+    private func runCycle(scheduleNext schedule: Bool = true) {
+        guard running || !schedule else { return }
+        guard let pool = pool else { if schedule { self.scheduleNext() }; return }
         let targets = pool.sessions.filter { !$0.cookies.isEmpty }
-        guard !targets.isEmpty else { scheduleNext(); return }
+        guard !targets.isEmpty else { if schedule { self.scheduleNext() }; return }
 
         Task { [weak self] in
             guard let self = self, let pool = self.pool else { return }
@@ -61,7 +66,10 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
                         cont.resume(returning: (false, m))
                     }
                 }
-                if !msg.hasPrefix("✅") { expiredNow.insert(s.id) }
+                let expired = !msg.hasPrefix("✅")
+                if expired { expiredNow.insert(s.id) }
+                // 把结果写回窗口，让「窗口列表」直接标红失效账号
+                pool.setCkExpired(id: s.id, expired: expired)
             }
             let newlyExpired = expiredNow.subtracting(self.lastInvalid)
             self.lastInvalid = expiredNow
@@ -72,7 +80,7 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
                 self.notify(title: "京东 CK 已过期",
                             body: "以下账号 CK 失效，请打开 App 更新：\(names)")
             }
-            self.scheduleNext()
+            if schedule { self.scheduleNext() }
         }
     }
 
