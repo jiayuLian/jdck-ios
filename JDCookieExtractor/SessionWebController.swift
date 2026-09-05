@@ -86,7 +86,7 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         let group = DispatchGroup()
         let store = webView.configuration.websiteDataStore.httpCookieStore
         for c in saved {
-            var props: [HTTPCookiePropertyKey: Any] = [
+            let props: [HTTPCookiePropertyKey: Any] = [
                 .name: c.name, .value: c.value, .domain: c.domain, .path: c.path,
                 .version: 0,
                 .secure: c.secure,
