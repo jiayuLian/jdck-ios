@@ -76,6 +76,19 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         _load(url)
     }
 
+    /// 清除本窗口登录态并重新打开登录页（重新登录按钮）。
+    /// 仅清本窗口独立存储的数据，不影响其它窗口；清完在主线程重载登录页。
+    func clearAndReload(url: URL) {
+        let store = webView.configuration.websiteDataStore
+        store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
+            store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), for: records) {
+                DispatchQueue.main.async { [weak self] in
+                    self?._load(url)
+                }
+            }
+        }
+    }
+
     private func _load(_ url: URL) {
         var req = URLRequest(url: url)
         req.httpShouldHandleCookies = true
