@@ -9,6 +9,9 @@ struct SessionModel: Identifiable, Codable {
     var cookie: String
     var ptPin: String?
     var status: String
+    /// 最近一次 CK 有效性自检结果：nil=未检测/未知，true=已失效，false=有效。
+    /// 用于「窗口列表」直接标红失效账号，免去逐个点开窗口才发现过期。
+    var ckExpired: Bool? = nil
     /// 本窗口的京东登录态（cookie），用于 App 重启后自动恢复，避免重新登录
     var cookies: [SavedCookie]
 
