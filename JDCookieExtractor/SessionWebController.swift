@@ -30,6 +30,8 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     var onQQLoginAttempted: (() -> Void)?
 
     private var loaded = false
+    /// 防止 onAppear 在 SwiftUI 下偶发连续触发导致重复注入/重载（#5）
+    private var restoring = false
 
     init(storeId: UUID) {
         self.storeId = storeId
@@ -169,7 +171,7 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
             checkTimer?.cancel()
             let w = DispatchWorkItem { [weak self] in self?.runLoginStateCheck() }
             checkTimer = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: w)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: w)
         }
     }
 
