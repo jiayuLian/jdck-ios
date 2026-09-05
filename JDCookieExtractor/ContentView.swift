@@ -36,9 +36,8 @@ struct ContentView: View {
             UNUserNotificationCenter.current().delegate = CKMonitor.shared
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            // 进入前台时注入数据访问器，并按开关启停轮询
-            CKMonitor.shared.sessionProvider = { [weak self] in self?.pool.sessions ?? [] }
-            CKMonitor.shared.controllerProvider = { [weak self] s in self?.pool.controller(for: s) }
+            // 进入前台时把会话池交给监控器，并按开关启停轮询
+            CKMonitor.shared.pool = pool
             if pollEnabled { CKMonitor.shared.start() } else { CKMonitor.shared.stop() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
