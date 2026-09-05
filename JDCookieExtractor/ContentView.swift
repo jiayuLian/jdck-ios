@@ -247,8 +247,12 @@ struct SessionDetail: View {
         .navigationTitle(session?.label ?? "窗口")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            pool.activeSessionId = sessionId
             if let s = session { pool.controller(for: s).ensureLoaded(url: jdLoginURL, restore: s.cookies) }
             bindCallbacks()
+        }
+        .onDisappear {
+            if pool.activeSessionId == sessionId { pool.activeSessionId = nil }
         }
     }
 
