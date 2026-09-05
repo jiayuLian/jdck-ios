@@ -8,9 +8,8 @@ import UserNotifications
 final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     static let shared = CKMonitor()
 
-    /// 由 ContentView 注入：提供当前会话列表 / 控制器访问器
-    var sessionProvider: (() -> [SessionModel])?
-    var controllerProvider: ((SessionModel) -> SessionWebController?)?
+    /// 由 ContentView 注入：直接弱持有会话池，从中取会话列表与控制器（避免闭包捕获值类型的 View）
+    weak var pool: SessionControllerPool?
 
     private var running = false
     private var nextWork: DispatchWorkItem?
@@ -48,17 +47,15 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
 
     private func runCycle() {
         guard running else { return }
-        guard let targets = sessionProvider?().filter({ !$0.cookies.isEmpty }),
-              let ctrl = controllerProvider, !targets.isEmpty else {
-            scheduleNext()
-            return
-        }
+        guard let pool = pool else { scheduleNext(); return }
+        let targets = pool.sessions.filter { !$0.cookies.isEmpty }
+        guard !targets.isEmpty else { scheduleNext(); return }
 
         Task { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, let pool = self.pool else { return }
             var expiredNow = Set<UUID>()
             for s in targets {
-                guard let c = ctrl(s) else { continue }
+                let c = pool.controller(for: s)
                 let (_, msg) = await withCheckedContinuation { cont in
                     c.checkValidity(cookies: s.cookies) { _, m in
                         cont.resume(returning: (false, m))
@@ -68,10 +65,10 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
             }
             let newlyExpired = expiredNow.subtracting(self.lastInvalid)
             self.lastInvalid = expiredNow
-            if !newlyExpired.isEmpty, let sessions = self.sessionProvider?() {
-                let names = sessions.filter { newlyExpired.contains($0.id) }
-                                    .map { $0.label }
-                                    .joined(separator: "、")
+            if !newlyExpired.isEmpty {
+                let names = pool.sessions.filter { newlyExpired.contains($0.id) }
+                                         .map { $0.label }
+                                         .joined(separator: "、")
                 self.notify(title: "京东 CK 已过期",
                             body: "以下账号 CK 失效，请打开 App 更新：\(names)")
             }
