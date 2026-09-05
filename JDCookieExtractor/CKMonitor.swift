@@ -28,6 +28,10 @@ final class CKMonitor: NSObject, ObservableObject {
     /// 否则并发检测所有已登录账号，**跳过用户当前正在看的窗口**（避免打断），
     /// 把每个账号的 CK 有效性写回列表用于标红。并发度受限（默认 4），账号再多也不卡 UI，全程无感。
     /// 全部账号检测完成后再写入 lastScanTS，确保只有「真正扫过一遍」才进入冷却。
+    ///
+    /// 重要：WKWebView 必须在主线程创建与操作。本函数整体处于 @MainActor，
+    /// 检测任务用「@MainActor task」确保每个 WKWebView 的创建/加载都在主线程完成，
+    /// 同时利用 checkValidity 内部 load 的异步特性实现多账号重叠检测（不阻塞 UI）。
     func scanNow() async {
         // 冷却判断：距上次扫描不足冷却期则不重复扫描
         let now = Date().timeIntervalSince1970
@@ -38,29 +42,29 @@ final class CKMonitor: NSObject, ObservableObject {
         let targets = pool.sessions.filter { !$0.cookies.isEmpty && $0.id != pool.activeSessionId }
         guard !targets.isEmpty else { return }
 
-        let maxConcurrent = 4
-        await withThrowingTaskGroup(of: Void.self) { group in
-            var iterator = targets.makeIterator()
-            func spawnNext() {
-                guard let s = iterator.next() else { return }
-                group.addTask {
-                    let (_, msg) = await withCheckedContinuation { cont in
-                        pool.controller(for: s).checkValidity(cookies: s.cookies) { _, m in
-                            cont.resume(returning: (false, m))
+        // 分批并发（每批 4 个），每批内多账号利用异步 load 重叠检测，既无感又不卡 UI。
+        // （各窗口 WKWebView 的创建由 SessionControllerPool.controller(for:) 统一保证在主线程，
+        //  故并发任务里访问也安全，不会触发后台创建崩溃。）
+        let batchSize = 4
+        var from = targets.startIndex
+        while from < targets.endIndex {
+            let end = min(from + batchSize, targets.endIndex)
+            let slice = Array(targets[from..<end])
+            await withThrowingTaskGroup(of: Void.self) { group in
+                for s in slice {
+                    // @MainActor：保证 WKWebView 创建/加载与 @Published 写入都在主线程
+                    group.addTask { @MainActor in
+                        let msg: String = await withCheckedContinuation { cont in
+                            pool.controller(for: s).checkValidity(cookies: s.cookies) { _, m in
+                                cont.resume(returning: m)
+                            }
                         }
+                        pool.setCkExpired(id: s.id, expired: !msg.hasPrefix("✅"))
                     }
-                    pool.setCkExpired(id: s.id, expired: !msg.hasPrefix("✅"))
                 }
+                _ = try? await group.waitForAll()
             }
-            // 初始填满并发槽
-            for _ in 0..<min(maxConcurrent, targets.count) { spawnNext() }
-            // 每完成一个就补一个，直到全部跑完（限流 + 全程并发，账号多也不卡）
-            var completed = 0
-            while completed < targets.count {
-                _ = try? await group.next()
-                completed += 1
-                spawnNext()
-            }
+            from = end
         }
 
         // 全部账号检测完毕，记录时间戳进入冷却期（下次前台切回若未超期则跳过）
