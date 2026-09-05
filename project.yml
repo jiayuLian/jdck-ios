@@ -15,6 +15,7 @@ targets:
       - path: JDCookieExtractor/SessionWebController.swift
       - path: JDCookieExtractor/SessionWebView.swift
       - path: JDCookieExtractor/SessionControllerPool.swift
+      - path: JDCookieExtractor/CKMonitor.swift
       - path: JDCookieExtractor/QinglongManager.swift
       - path: JDCookieExtractor/Assets.xcassets
     info:
