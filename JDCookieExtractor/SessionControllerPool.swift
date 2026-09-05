@@ -69,6 +69,14 @@ final class SessionControllerPool: ObservableObject {
         if let c = controllers[session.id] { return c }
         let c = SessionWebController(storeId: session.storeId)
         controllers[session.id] = c
+        // 关键：WKWebView 严禁在后台线程创建。本方法可能被 scanNow 的并发任务（后台线程）
+        // 或 checkAll 等路径调用，因此在此统一保证 WebView 完成首次实例化落在主线程，
+        // 避免后台线程创建触发系统断言崩溃（这是此前「打开 App 即闪退」的根因来源）。
+        if !Thread.isMainThread {
+            DispatchQueue.main.sync { _ = c.webView }
+        } else {
+            _ = c.webView
+        }
         return c
     }
 
