@@ -10,7 +10,7 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
 
     /// 由 ContentView 注入：提供当前会话列表 / 控制器访问器
     var sessionProvider: (() -> [SessionModel])?
-    var controllerProvider: ((SessionModel) -> SessionWebController)?
+    var controllerProvider: ((SessionModel) -> SessionWebController?)?
 
     private var running = false
     private var nextWork: DispatchWorkItem?
@@ -58,8 +58,9 @@ final class CKMonitor: NSObject, ObservableObject, UNUserNotificationCenterDeleg
             guard let self = self else { return }
             var expiredNow = Set<UUID>()
             for s in targets {
+                guard let c = ctrl(s) else { continue }
                 let (_, msg) = await withCheckedContinuation { cont in
-                    ctrl(s).checkValidity(cookies: s.cookies) { _, m in
+                    c.checkValidity(cookies: s.cookies) { _, m in
                         cont.resume(returning: (false, m))
                     }
                 }
