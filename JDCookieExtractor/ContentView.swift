@@ -270,12 +270,18 @@ struct SessionDetail: View {
                 pool.update(m)
             }
         }
-        // 窗口页「下滑」下拉刷新：触发 CK 有效性自检，结果写回状态并结束刷新动画
+        // 窗口页「下滑」下拉刷新：触发 CK 有效性自检，结果写回状态并结束刷新动画。
+        // 手势语义由 UIRefreshControl(.valueChanged) 原生保证：必须「从顶部下拉 → 松手越过阈值」才触发；
+        // 不松手、或下拉后没松手又滑回原位、或滑到底部，均不会触发刷新。
         c.onRefresh = { [weak pool] in
             guard let pool = pool,
                   let s = pool.sessions.first(where: { $0.id == sessionId }) else { return }
             let ctrl = pool.controller(for: s)
-            if s.cookies.isEmpty {
+            // 安全兜底：CK 自检若因网络卡住迟迟不回调，最多 20s 后强制结束刷新动画，避免菊花转死。
+            let timeout = DispatchWorkItem { [weak ctrl] in ctrl?.refreshControl.endRefreshing() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: timeout)
+            guard !s.cookies.isEmpty else {
+                timeout.cancel()
                 ctrl.refreshControl.endRefreshing()
                 if var m = pool.sessions.first(where: { $0.id == sessionId }) {
                     m.status = "⚠️ 本窗口尚未提取 CK，无法检测"
@@ -285,6 +291,7 @@ struct SessionDetail: View {
             }
             ctrl.checkValidity(cookies: s.cookies) { ok, msg in
                 DispatchQueue.main.async {
+                    timeout.cancel()
                     ctrl.refreshControl.endRefreshing()
                     if var m = pool.sessions.first(where: { $0.id == sessionId }) {
                         m.status = msg
