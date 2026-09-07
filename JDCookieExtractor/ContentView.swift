@@ -6,8 +6,6 @@ struct ContentView: View {
     @AppStorage("ql_baseURL") private var baseURL: String = ""
     @AppStorage("ql_clientId") private var clientId: String = ""
     @AppStorage("ql_clientSecret") private var clientSecret: String = ""
-    /// 无感检测冷却间隔（分钟，5–120，步进 5），与 CKMonitor 共用同一 key
-    @AppStorage("ck_scan_cooldown_min") private var cooldownMinutes: Int = 15
     @State private var settingsStatus: String = ""
 
     private var configValid: Bool {
@@ -28,12 +26,8 @@ struct ContentView: View {
         }
         .environmentObject(pool)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            // 进入前台：当前可见窗口 cookie 自愈（#2），并自动无感排查一次所有账号 CK 状态，
-            // 让「窗口列表」直接标红失效账号。检测带冷却（默认 15 分钟），
-            // 频繁切前后台不会反复重扫，零资源消耗。
-            CKMonitor.shared.pool = pool
+            // 进入前台：当前可见窗口 cookie 自愈（重新比对并注入，避免 nonPersistent 存储被系统回收后回到登录页）
             pool.refreshActiveIfNeeded()
-            CKMonitor.shared.scanNow()
         }
     }
 
@@ -123,16 +117,7 @@ struct ContentView: View {
                 Section {
                     Button("一键检测全部账号") { Task { await checkAll() } }
                         .disabled(pool.sessions.isEmpty)
-                    Text("依次在每个已登录窗口加载京东个人页，依据落页判断 CK 是否有效，结果以弹窗汇总（类似「一键推送全部账号」）。")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Section("无感检测") {
-                    Stepper(value: $cooldownMinutes, in: 5...120, step: 5) {
-                        Text("冷却间隔：\(cooldownMinutes) 分钟")
-                    }
-                    Text("打开 App / 切回前台时自动无感检测各账号 CK 是否失效并标红；两次检测间隔不足设定分钟数则跳过，避免反复打京东（省流量、防风控）。想更灵敏调小、想更省调大。被杀掉后不检测（24/7 兜底靠服务器侧 PushPlus）。")
+                    Text("依次在每个已登录窗口加载京东个人页，依据落页判断 CK 是否有效，结果以弹窗汇总（类似「一键推送全部账号」）。也可在单个窗口内「下滑」下拉刷新直接自检。")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -283,6 +268,30 @@ struct SessionDetail: View {
             if var m = pool.sessions.first(where: { $0.id == sessionId }) {
                 m.status = "❌ 不支持 QQ 快速登录，请用短信/密码登录"
                 pool.update(m)
+            }
+        }
+        // 窗口页「下滑」下拉刷新：触发 CK 有效性自检，结果写回状态并结束刷新动画
+        c.onRefresh = { [weak pool] in
+            guard let pool = pool,
+                  let s = pool.sessions.first(where: { $0.id == sessionId }) else { return }
+            let ctrl = pool.controller(for: s)
+            if s.cookies.isEmpty {
+                ctrl.refreshControl.endRefreshing()
+                if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                    m.status = "⚠️ 本窗口尚未提取 CK，无法检测"
+                    pool.update(m)
+                }
+                return
+            }
+            ctrl.checkValidity(cookies: s.cookies) { ok, msg in
+                DispatchQueue.main.async {
+                    ctrl.refreshControl.endRefreshing()
+                    if var m = pool.sessions.first(where: { $0.id == sessionId }) {
+                        m.status = msg
+                        m.ckExpired = !msg.hasPrefix("✅")
+                        pool.update(m)
+                    }
+                }
             }
         }
     }
