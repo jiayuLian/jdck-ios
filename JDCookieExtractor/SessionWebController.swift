@@ -20,6 +20,7 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         wv.uiDelegate = self
         wv.allowsBackForwardNavigationGestures = true
         wv.scrollView.bounces = true
+        wv.scrollView.refreshControl = refreshControl
         // iPhone Safari UA，避免京东返回 PC 页或被拦截
         wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Mobile/15E148 Safari/604.1"
         return wv
@@ -28,6 +29,22 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     var onCookieExtracted: ((String) -> Void)?
     var onError: ((String) -> Void)?
     var onQQLoginAttempted: (() -> Void)?
+
+    /// 下拉刷新控件：在窗口页「下滑」时触发 CK 有效性自检（需求 #2）。
+    /// 控制器只负责把下拉手势转交给上层（onRefresh），由上层调用 checkValidity 并更新结果，
+    /// 避免控制器直接耦合会话数据。
+    private(set) lazy var refreshControl: UIRefreshControl = {
+        let rc = UIRefreshControl()
+        rc.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
+        return rc
+    }()
+
+    /// 由 SessionDetail 注入：用户下拉刷新时触发，由上层执行 CK 自检并结束刷新动画。
+    var onRefresh: (() -> Void)?
+
+    @objc private func handleRefresh() {
+        onRefresh?()
+    }
 
     private var loaded = false
     /// 防止 onAppear 在 SwiftUI 下偶发连续触发导致重复注入/重载（#5）
