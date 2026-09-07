@@ -20,7 +20,8 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
         wv.uiDelegate = self
         wv.allowsBackForwardNavigationGestures = true
         wv.scrollView.bounces = true
-        wv.scrollView.refreshControl = refreshControl
+        wv.scrollView.alwaysBounceVertical = true
+        setupRefreshObservation(on: wv.scrollView)
         // iPhone Safari UA，避免京东返回 PC 页或被拦截
         wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Mobile/15E148 Safari/604.1"
         return wv
@@ -30,20 +31,59 @@ final class SessionWebController: NSObject, ObservableObject, WKNavigationDelega
     var onError: ((String) -> Void)?
     var onQQLoginAttempted: (() -> Void)?
 
-    /// 下拉刷新控件：在窗口页「下滑」时触发 CK 有效性自检（需求 #2）。
-    /// 控制器只负责把下拉手势转交给上层（onRefresh），由上层调用 checkValidity 并更新结果，
-    /// 避免控制器直接耦合会话数据。
-    private(set) lazy var refreshControl: UIRefreshControl = {
-        let rc = UIRefreshControl()
-        rc.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
-        return rc
-    }()
+    /// 下拉刷新：在窗口页「顶部下拉并松手越过阈值」时触发 CK 有效性自检（需求 #2）。
+    /// 注意：WKWebView 的 scrollView 原生 UIRefreshControl 在实测中经常不弹出（内部手势会吞掉下拉），
+    /// 故改用 KVO 监听 contentOffset + 拖拽手势结束，自行实现触发逻辑，并以居中的
+    /// UIActivityIndicatorView 作为刷新指示，保证在窗口页稳定可用。
+    private let refreshThreshold: CGFloat = 70
+    private var pullProgress: CGFloat = 0
+    private var refreshing = false
+    private var offsetObs: NSKeyValueObservation?
+    private var panObs: NSKeyValueObservation?
+    private var refreshSpinner: UIActivityIndicatorView?
 
-    /// 由 SessionDetail 注入：用户下拉刷新时触发，由上层执行 CK 自检并结束刷新动画。
+    /// 由 SessionDetail 注入：用户下拉刷新时触发，由上层执行 CK 自检并调用 endRefresh() 结束。
     var onRefresh: (() -> Void)?
 
-    @objc private func handleRefresh() {
+    /// 在 WebView 初始化时调用一次：挂载下拉刷新的 KVO 监听，并创建刷新指示器。
+    private func setupRefreshObservation(on scrollView: UIScrollView) {
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.hidesWhenStopped = true
+        spinner.color = .systemGray
+        spinner.frame = CGRect(x: 0, y: 0, width: 20, height: 20)
+        scrollView.addSubview(spinner)
+        refreshSpinner = spinner
+
+        offsetObs = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
+            guard let self = self, !self.refreshing else { return }
+            let y = sv.contentOffset.y
+            self.pullProgress = y < 0 ? min(1, abs(y) / self.refreshThreshold) : 0
+        }
+        panObs = scrollView.panGestureRecognizer.observe(\.state, options: [.new]) { [weak self] pg, _ in
+            guard let self = self else { return }
+            if pg.state == .ended || pg.state == .cancelled {
+                let triggered = !self.refreshing && self.pullProgress >= 1
+                self.pullProgress = 0
+                if triggered { self.beginRefresh() }
+            }
+        }
+    }
+
+    private func beginRefresh() {
+        guard !refreshing else { return }
+        refreshing = true
+        webView.scrollView.contentInset.top = 40
+        refreshSpinner?.center = CGPoint(x: webView.bounds.width / 2, y: -20)
+        refreshSpinner?.startAnimating()
         onRefresh?()
+    }
+
+    /// 上层 CK 自检完成后调用，结束刷新动画并复位 contentInset。
+    func endRefresh() {
+        guard refreshing else { return }
+        refreshing = false
+        webView.scrollView.contentInset.top = 0
+        refreshSpinner?.stopAnimating()
     }
 
     private var loaded = false
